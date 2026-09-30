@@ -23,6 +23,7 @@ import {
 import { ActivityLog, GreenActivity, UserProfile } from '../types';
 import { GREEN_ACTIVITIES_CATALOG } from '../data/initialData';
 import { audioService } from '../services/audioService';
+import { hapticService } from '../services/hapticService';
 import confetti from 'canvas-confetti';
 
 interface GreenBharatHubProps {

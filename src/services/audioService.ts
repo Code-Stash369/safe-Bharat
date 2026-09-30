@@ -1,3 +1,5 @@
+import { hapticService } from './hapticService';
+
 /**
  * Web Audio API Engine for Safe Bharat
  * Pure client-side synthetic audio: No external mp3 files needed.
@@ -10,6 +12,8 @@ class AudioService {
   private sirenInterval: any = null;
   private ringtoneInterval: any = null;
   private isRinging = false;
+  private isThreeBlastRunning = false;
+  private threeBlastTimer: any = null;
 
   private getContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -66,14 +70,8 @@ class AudioService {
       osc.start(t0);
       osc.stop(t0 + 0.7);
 
-      // Trigger phone vibration if available
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try {
-          navigator.vibrate([350, 100, 350]);
-        } catch {
-          // ignore vibration restriction
-        }
-      }
+      // Trigger synchronized tactile haptic pulses
+      hapticService.triggerSirenTick();
     };
 
     sweep();
@@ -82,6 +80,7 @@ class AudioService {
 
   public stopSiren() {
     this.isSirenActive = false;
+    hapticService.cancel();
     if (this.sirenInterval) {
       clearInterval(this.sirenInterval);
       this.sirenInterval = null;
@@ -90,6 +89,82 @@ class AudioService {
 
   public isSirenRunning(): boolean {
     return this.isSirenActive;
+  }
+
+  /**
+   * International Maritime & Alpine 3-Blast Search and Rescue Acoustic Signal
+   * 3 loud whistle / horn bursts (each 3.0s), 1.0s gap, then repeated.
+   * Universally recognized by search dogs, helicopters, and rescue patrols.
+   */
+  public playThreeBlastDistress(onBlastChange?: (blastNum: number, isActive: boolean) => void) {
+    if (this.isThreeBlastRunning) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    this.isThreeBlastRunning = true;
+    let blastCount = 0;
+
+    const runSequence = () => {
+      if (!this.isThreeBlastRunning || !this.ctx) return;
+
+      const currentBlast = (blastCount % 3) + 1;
+      blastCount++;
+
+      if (onBlastChange) onBlastChange(currentBlast, true);
+
+      // Play 3000ms piercing tone (880 Hz whistle pitch)
+      const t0 = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(880, t0);
+      osc.frequency.linearRampToValueAtTime(895, t0 + 1.5);
+      osc.frequency.linearRampToValueAtTime(880, t0 + 3.0);
+
+      gain.gain.setValueAtTime(0.01, t0);
+      gain.gain.linearRampToValueAtTime(0.35, t0 + 0.1);
+      gain.gain.setValueAtTime(0.35, t0 + 2.85);
+      gain.gain.linearRampToValueAtTime(0.01, t0 + 2.98);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 900;
+      filter.Q.value = 3.0;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(t0);
+      osc.stop(t0 + 3.0);
+
+      hapticService.vibrate([1000, 200, 1000, 200, 1000]);
+
+      // 3.0s blast + 1.0s gap = 4000ms per blast. After 3 blasts, wait 3.0s silence before repeating
+      const nextDelay = currentBlast === 3 ? 6000 : 4000;
+      this.threeBlastTimer = setTimeout(() => {
+        if (onBlastChange) onBlastChange(currentBlast, false);
+        if (this.isThreeBlastRunning) {
+          runSequence();
+        }
+      }, nextDelay);
+    };
+
+    runSequence();
+  }
+
+  public stopThreeBlastDistress() {
+    this.isThreeBlastRunning = false;
+    hapticService.cancel();
+    if (this.threeBlastTimer) {
+      clearTimeout(this.threeBlastTimer);
+      this.threeBlastTimer = null;
+    }
+  }
+
+  public isThreeBlastActive(): boolean {
+    return this.isThreeBlastRunning;
   }
 
   public playIncomingRingtone() {
@@ -148,6 +223,7 @@ class AudioService {
       clearInterval(this.ringtoneInterval);
       this.ringtoneInterval = null;
     }
+    hapticService.cancel();
   }
 
   public playSuccessChime() {

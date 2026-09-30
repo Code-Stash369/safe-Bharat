@@ -15,7 +15,9 @@ import {
   Heart, 
   CheckCircle2, 
   X,
-  ExternalLink
+  ExternalLink,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { 
   ActivityLog, 
@@ -44,6 +46,10 @@ import { VoiceSOSBanner } from './components/VoiceSOSBanner';
 import { VoiceSOSTriggerModal } from './components/VoiceSOSTriggerModal';
 import { VoiceSOSEvent } from './services/voiceSOSService';
 import { SafeBharatLogo } from './components/SafeBharatLogo';
+import { SafeAIChatbot } from './components/SafeAIChatbot';
+import { OfflineConnectivityMonitor } from './components/OfflineConnectivityMonitor';
+import { offlineMonitorService } from './services/offlineMonitorService';
+import { hapticService } from './services/hapticService';
 import { NEARBY_SERVICES_SAMPLE } from './data/initialData';
 
 export default function App() {
@@ -57,6 +63,17 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeVoiceEvent, setActiveVoiceEvent] = useState<VoiceSOSEvent | null>(null);
+  const [isSafeAIFloatingOpen, setIsSafeAIFloatingOpen] = useState<boolean>(false);
+  const [isOfflineMonitorOpen, setIsOfflineMonitorOpen] = useState<boolean>(false);
+  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+
+  // Subscribe to offline connectivity events & signal drops
+  useEffect(() => {
+    const unsubscribe = offlineMonitorService.subscribe((state) => {
+      setIsOffline(!state.isOnline);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Initialize or update streak check
   useEffect(() => {
@@ -97,6 +114,7 @@ export default function App() {
             timestamp: pos.timestamp,
           };
           setLocation(loc);
+          offlineMonitorService.updateLastKnownLocation(loc);
           showToast(`GPS Position Locked (±${Math.round(loc.accuracy)}m)`);
           resolve(loc);
         },
@@ -131,6 +149,7 @@ export default function App() {
     };
     setActiveVoiceEvent(evt);
     setIsSirenActive(true);
+    hapticService.triggerSOS();
     setActiveTab('sos');
     showToast(`🚨 Voice SOS Triggered: "${evt.keyword}"`);
   }, []);
@@ -221,6 +240,18 @@ export default function App() {
         onQuickGPS={handleRequestLocation}
         reports={reports}
         onTriggerTestNotification={handleTriggerTestNotification}
+        onOpenOfflineMonitor={() => setIsOfflineMonitorOpen(true)}
+        isOffline={isOffline}
+      />
+
+      {/* Offline Connectivity Monitor & Signal Drop Alert */}
+      <OfflineConnectivityMonitor
+        location={location}
+        isOpenModal={isOfflineMonitorOpen}
+        onCloseModal={() => setIsOfflineMonitorOpen(false)}
+        onOpenModal={() => setIsOfflineMonitorOpen(true)}
+        isSirenActive={isSirenActive}
+        onToggleSiren={handleToggleSiren}
       />
 
       {/* Main Viewport Content Container */}
@@ -309,7 +340,57 @@ export default function App() {
             onAwardBonusPoints={handleAwardBonusPoints}
           />
         )}
+
+        {activeTab === 'safe_ai' && (
+          <SafeAIChatbot
+            user={user}
+            location={location}
+            onRequestLocation={handleRequestLocation}
+            isSirenActive={isSirenActive}
+            onToggleSiren={handleToggleSiren}
+            onNavigateTab={setActiveTab}
+            onOpenFakeCall={() => setActiveTab('women')}
+            onOpenProfile={() => setIsProfileOpen(true)}
+          />
+        )}
       </main>
+
+      {/* Floating Safe AI Quick Launcher (Desktop / Tablet) */}
+      {!isSafeAIFloatingOpen && activeTab !== 'safe_ai' && (
+        <button
+          onClick={() => setIsSafeAIFloatingOpen(true)}
+          className="hidden lg:flex fixed bottom-6 right-48 z-40 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white font-display font-black text-xs shadow-2xl shadow-emerald-600/40 border border-emerald-400 hover:scale-105 active:scale-95 transition-all cursor-pointer items-center gap-1.5"
+          title="Safe AI — 24x7 Safety & Emergency Assistant"
+          aria-label="Open Safe AI Chatbot"
+        >
+          <Sparkles className="w-4 h-4 text-emerald-200 animate-pulse" />
+          <span className="font-bold">Safe AI</span>
+        </button>
+      )}
+
+      {/* Floating Safe AI Modal */}
+      {isSafeAIFloatingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
+          <SafeAIChatbot
+            user={user}
+            location={location}
+            onRequestLocation={handleRequestLocation}
+            isSirenActive={isSirenActive}
+            onToggleSiren={handleToggleSiren}
+            onNavigateTab={setActiveTab}
+            onOpenFakeCall={() => {
+              setIsSafeAIFloatingOpen(false);
+              setActiveTab('women');
+            }}
+            onOpenProfile={() => {
+              setIsSafeAIFloatingOpen(false);
+              setIsProfileOpen(true);
+            }}
+            isFloatingModal={true}
+            onCloseModal={() => setIsSafeAIFloatingOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Profile Modal */}
       {isProfileOpen && (
@@ -326,6 +407,7 @@ export default function App() {
         location={location}
         onRequestLocation={handleRequestLocation}
         onTriggerSOSModal={() => setActiveTab('sos')}
+        currentNavigationTab={activeTab}
       />
 
       {/* Voice-Activated 'Help' Command Listener Floating Capsule */}

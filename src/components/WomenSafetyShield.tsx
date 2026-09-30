@@ -15,11 +15,17 @@ import {
   ExternalLink,
   ShieldCheck,
   Send,
-  UserCheck
+  UserCheck,
+  MessageSquare,
+  Share2,
+  Copy,
+  Check
 } from 'lucide-react';
-import { LocationInfo, UserProfile } from '../types';
+import { LocationInfo, UserProfile, EmergencyContact } from '../types';
 import { audioService } from '../services/audioService';
 import { openExternalLink } from '../services/linkService';
+import { smsDispatchService } from '../services/smsDispatchService';
+import { hapticService } from '../services/hapticService';
 
 interface WomenSafetyShieldProps {
   user: UserProfile;
@@ -58,6 +64,7 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
             clearInterval(escortInterval.current);
             setEscortExpired(true);
             audioService.playSiren();
+            hapticService.triggerSOS();
             return 0;
           }
           return prev - 1;
@@ -86,6 +93,7 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
     if (!location) {
       await onRequestLocation();
     }
+    hapticService.triggerActionConfirmed();
     setSecondsRemaining(escortDurationMins * 60);
     setEscortExpired(false);
     setEscortActive(true);
@@ -95,6 +103,7 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
     setEscortActive(false);
     setEscortExpired(false);
     audioService.stopSiren();
+    hapticService.cancel();
     audioService.playSuccessChime();
   };
 
@@ -115,6 +124,7 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
 
   const handleAnswerFakeCall = () => {
     audioService.stopIncomingRingtone();
+    hapticService.triggerTap();
     setFakeCallTriggered(false);
     setFakeCallActive(true);
 
@@ -134,6 +144,7 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
 
   const handleEndFakeCall = () => {
     audioService.stopIncomingRingtone();
+    hapticService.cancel();
     setFakeCallTriggered(false);
     setFakeCallActive(false);
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -145,6 +156,52 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
     const mins = Math.floor(secs / 60);
     const remainder = secs % 60;
     return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
+  };
+
+  const [copiedDistress, setCopiedDistress] = useState<boolean>(false);
+  const [dispatchStatus, setDispatchStatus] = useState<string | null>(null);
+
+  const handleDispatchSMS = (targetContact?: EmergencyContact) => {
+    hapticService.triggerActionConfirmed();
+    const res = smsDispatchService.dispatchViaNativeSMS(
+      user,
+      location,
+      `Women Safety Shield Alert: Traveling toward "${escortDestination}"`,
+      targetContact
+    );
+    if (res.success) {
+      setDispatchStatus(
+        targetContact
+          ? `SMS opened for ${targetContact.name}`
+          : `SMS opened for ${res.recipientCount} saved contacts`
+      );
+      setTimeout(() => setDispatchStatus(null), 3500);
+    }
+  };
+
+  const handleWebShare = async () => {
+    hapticService.triggerActionConfirmed();
+    const res = await smsDispatchService.dispatchViaWebShare(
+      user,
+      location,
+      `Women Safety Shield Alert: Traveling toward "${escortDestination}"`
+    );
+    if (res.success) {
+      setDispatchStatus('Alert shared via native share sheet');
+      setTimeout(() => setDispatchStatus(null), 3500);
+    }
+  };
+
+  const handleCopyDistress = async () => {
+    const success = await smsDispatchService.copyDistressText(
+      user,
+      location,
+      `Women Safety Shield Alert: Traveling toward "${escortDestination}"`
+    );
+    if (success) {
+      setCopiedDistress(true);
+      setTimeout(() => setCopiedDistress(false), 2200);
+    }
   };
 
   const handleQuickShare = () => {
@@ -276,6 +333,95 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
         </div>
       </section>
 
+      {/* Automated Emergency SMS & Native Dispatch Card */}
+      <section className="bg-gradient-to-br from-slate-950 via-slate-900 to-pink-950/30 border border-pink-900/50 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center border border-pink-500/30">
+              <MessageSquare className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display font-bold text-base text-white">
+                Instant SOS Dispatch to Pre-Saved Contacts
+              </h2>
+              <p className="text-xs text-slate-400">
+                1-tap native SMS &amp; Web Share broadcast with exact GPS link &amp; medical note.
+              </p>
+            </div>
+          </div>
+
+          <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-pink-500/20 text-pink-300 border border-pink-500/40 self-start sm:self-auto">
+            {user.contacts?.length || 0} Contacts Configured
+          </span>
+        </div>
+
+        {dispatchStatus && (
+          <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500 text-xs text-emerald-200 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{dispatchStatus}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <button
+            onClick={() => handleDispatchSMS()}
+            className="py-3 px-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-display font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-pink-600/30 cursor-pointer active:scale-95 transition-all"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Send SOS SMS to All Contacts ({user.contacts?.length || 0})</span>
+          </button>
+
+          {smsDispatchService.canShare() ? (
+            <button
+              onClick={handleWebShare}
+              className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-display font-bold text-xs flex items-center justify-center gap-2 border border-slate-700 cursor-pointer active:scale-95 transition-all"
+            >
+              <Share2 className="w-4 h-4 text-sky-400" />
+              <span>Native Web Share (WhatsApp / SMS)</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleCopyDistress}
+              className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-display font-bold text-xs flex items-center justify-center gap-2 border border-slate-700 cursor-pointer active:scale-95 transition-all"
+            >
+              {copiedDistress ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-300" />}
+              <span>{copiedDistress ? 'Distress Copied!' : 'Copy Distress Details'}</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleQuickShare}
+            className="py-3 px-4 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-700/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors active:scale-95"
+          >
+            <Send className="w-4 h-4 text-emerald-400" />
+            <span>Quick WhatsApp Status</span>
+          </button>
+        </div>
+
+        {/* Quick Individual Contact SMS Chips */}
+        {user.contacts && user.contacts.length > 0 && (
+          <div className="pt-2 border-t border-slate-800 space-y-1.5">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
+              1-Tap Alert to Specific Contact:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {user.contacts.map((contact) => (
+                <button
+                  key={contact.id}
+                  onClick={() => handleDispatchSMS(contact)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-900/90 hover:bg-pink-950/60 border border-slate-800 hover:border-pink-500/50 text-slate-200 hover:text-pink-200 text-[11px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                  title={`Send emergency alert to ${contact.name}`}
+                >
+                  <MessageSquare className="w-3 h-3 text-pink-400" />
+                  <span>{contact.name}</span>
+                  <span className="text-[9px] font-mono text-slate-400">({contact.phone})</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* Feature 1: Walk With Me (Virtual Journey Escort Timer) */}
       <section className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl space-y-5">
         <div className="flex items-center justify-between">
@@ -316,6 +462,14 @@ export const WomenSafetyShield: React.FC<WomenSafetyShieldProps> = ({
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>I Have Arrived Safely (End Escort)</span>
+              </button>
+
+              <button
+                onClick={() => handleDispatchSMS()}
+                className="w-full sm:w-auto py-3 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-rose-600/30 transition-colors cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Instant SMS Alert to Contacts</span>
               </button>
 
               <button

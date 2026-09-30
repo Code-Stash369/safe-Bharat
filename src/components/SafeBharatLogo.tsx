@@ -4,17 +4,19 @@ interface LogoProps {
   className?: string;
   size?: number;
   showText?: boolean;
+  hideTextOnMobile?: boolean;
 }
 
 export const SafeBharatLogo: React.FC<LogoProps> = ({
   className = '',
   size = 44,
   showText = false,
+  hideTextOnMobile = false,
 }) => {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <div className={`inline-flex items-center gap-2.5 ${className}`}>
+    <div className={`inline-flex items-center gap-2 sm:gap-2.5 ${className}`}>
       <div 
         className="relative flex-none rounded-full overflow-hidden shadow-lg shadow-emerald-950/60 p-0.5 bg-gradient-to-tr from-amber-500 via-white to-emerald-600 shrink-0"
         style={{ width: size, height: size }}
@@ -61,16 +63,16 @@ export const SafeBharatLogo: React.FC<LogoProps> = ({
       </div>
 
       {showText && (
-        <div className="flex flex-col min-w-0">
+        <div className={`flex flex-col min-w-0 ${hideTextOnMobile ? 'hidden xs:flex' : 'flex'}`}>
           <div className="flex items-center gap-1.5">
-            <span className="font-display font-extrabold text-white text-base sm:text-lg tracking-tight leading-tight whitespace-nowrap">
+            <span className="font-display font-extrabold text-white text-xs sm:text-base lg:text-lg tracking-tight leading-tight whitespace-nowrap">
               SAFE BHARAT
             </span>
-            <span className="hidden sm:inline-block text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <span className="hidden sm:inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               NATIONAL
             </span>
           </div>
-          <span className="hidden xs:inline-block text-[10px] sm:text-[11px] font-medium text-emerald-400/90 leading-tight truncate">
+          <span className="hidden md:inline-block text-[10px] sm:text-[11px] font-medium text-emerald-400/90 leading-tight truncate">
             सेव भारत · Safety &amp; Resilience
           </span>
         </div>

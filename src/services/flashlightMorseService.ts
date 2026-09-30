@@ -95,6 +95,14 @@ class FlashlightMorseService {
     this.onStateChangeCallback = cb;
   }
 
+  public onStateChange(cb: (active: boolean, isFlashOn: boolean) => void) {
+    this.onStateChangeCallback = cb;
+  }
+
+  public async stopMorse(): Promise<void> {
+    return this.stopMorseSOS();
+  }
+
   public async startMorseSOS(): Promise<void> {
     if (this.isMorseActive) return;
     this.isMorseActive = true;

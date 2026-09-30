@@ -78,7 +78,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
       {/* Dropdown Drawer */}
       {isOpen && (
-        <div className="fixed sm:absolute right-3 sm:right-0 top-16 sm:top-auto sm:mt-2 w-[calc(100vw-24px)] sm:w-96 max-w-sm rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-4 space-y-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-16 sm:top-auto sm:mt-2 w-auto sm:w-96 max-w-sm mx-auto sm:mx-0 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-4 space-y-3 z-50 animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
             <div className="flex items-center gap-2">
               <BellRing className="w-4 h-4 text-amber-400" />

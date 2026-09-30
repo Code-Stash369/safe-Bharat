@@ -13,12 +13,18 @@ import {
   QrCode,
   MapPin,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  MessageSquare,
+  Share2,
+  Activity,
+  Zap
 } from 'lucide-react';
 import { EmergencyContact, UserProfile } from '../types';
 import { storageService } from '../services/storageService';
 import { SafeBharatLogo } from './SafeBharatLogo';
 import { useLanguage } from '../context/LanguageContext';
+import { smsDispatchService } from '../services/smsDispatchService';
+import { hapticService } from '../services/hapticService';
 
 interface UserProfileModalProps {
   user: UserProfile;
@@ -39,6 +45,33 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [showAddContact, setShowAddContact] = useState<boolean>(false);
   const [savedStatus, setSavedStatus] = useState<boolean>(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [autoDispatch, setAutoDispatch] = useState<boolean>(smsDispatchService.isAutoDispatchEnabled());
+  const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(hapticService.isEnabled());
+  const [isVibratingTest, setIsVibratingTest] = useState<boolean>(false);
+
+  const handleToggleAutoDispatch = () => {
+    const next = !autoDispatch;
+    setAutoDispatch(next);
+    smsDispatchService.setAutoDispatchEnabled(next);
+  };
+
+  const handleToggleHaptics = () => {
+    const next = !hapticsEnabled;
+    setHapticsEnabled(next);
+    hapticService.setEnabled(next);
+  };
+
+  const handleTestHapticPattern = () => {
+    if (!hapticsEnabled) {
+      hapticService.setEnabled(true);
+      setHapticsEnabled(true);
+    }
+    setIsVibratingTest(true);
+    hapticService.triggerSOS();
+    setTimeout(() => {
+      setIsVibratingTest(false);
+    }, 2800);
+  };
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,6 +291,84 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <Plus className="w-3.5 h-3.5" />
               <span>Add Contact</span>
             </button>
+          </div>
+
+          {/* Automated SMS Dispatch Setting Toggle */}
+          <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className={`p-2 rounded-xl ${autoDispatch ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-800 text-slate-400'}`}>
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-white block">Auto-Prompt SMS on SOS Events</span>
+                <span className="text-[10px] text-slate-400">
+                  Pre-fills native SMS to all saved contacts when voice or panic beacon triggers.
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleToggleAutoDispatch}
+              className={`px-3 py-1.5 rounded-xl font-mono text-[11px] font-bold border transition-colors cursor-pointer shrink-0 ${
+                autoDispatch
+                  ? 'bg-rose-950/70 border-rose-500/50 text-rose-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400'
+              }`}
+            >
+              {autoDispatch ? 'ENABLED' : 'DISABLED'}
+            </button>
+          </div>
+
+          {/* Haptic Feedback (Vibrate API) Safety Setting */}
+          <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className={`p-2 rounded-xl ${hapticsEnabled ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
+                <Activity className="w-4 h-4 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white block">Tactile Haptic Feedback (Vibrate API)</span>
+                  {hapticService.isSupported() ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+                      SUPPORTED
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono text-slate-400 bg-slate-900 border border-slate-800">
+                      NO VIB MOTOR / DESKTOP
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-400">
+                  Tactile pulsing during emergency SOS hold, siren drills, and speed hazard alerts.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={handleTestHapticPattern}
+                disabled={isVibratingTest}
+                className="px-2.5 py-1 rounded-lg bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/40 text-amber-300 text-[10px] font-bold font-mono transition-all flex items-center gap-1 cursor-pointer active:scale-95 disabled:opacity-50"
+                title="Test SOS vibrating pulse sequence"
+              >
+                <Zap className="w-3 h-3 text-amber-400" />
+                <span>{isVibratingTest ? 'PULSING...' : 'TEST SOS PULSE'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleHaptics}
+                className={`px-3 py-1.5 rounded-xl font-mono text-[11px] font-bold border transition-colors cursor-pointer ${
+                  hapticsEnabled
+                    ? 'bg-amber-950/70 border-amber-500/50 text-amber-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+              >
+                {hapticsEnabled ? 'ENABLED' : 'DISABLED'}
+              </button>
+            </div>
           </div>
 
           {showAddContact && (

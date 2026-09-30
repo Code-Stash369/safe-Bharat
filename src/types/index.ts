@@ -7,7 +7,49 @@ export type NavigationTab =
   | 'green'
   | 'radar'
   | 'iks'
-  | 'contacts';
+  | 'contacts'
+  | 'safe_ai';
+
+export type SafeAIActionType = 
+  | 'SHARE_LOCATION'
+  | 'WHATSAPP_SOS'
+  | 'CALL_CONTACT'
+  | 'CALL_112'
+  | 'CALL_181'
+  | 'CALL_108'
+  | 'CALL_101'
+  | 'CALL_DISASTER'
+  | 'TRIGGER_SOS'
+  | 'STOP_SIREN'
+  | 'OPEN_CAMERA'
+  | 'FAKE_CALL'
+  | 'FIND_SAFE_PLACES'
+  | 'START_ESCORT'
+  | 'STROBE_FLASHLIGHT'
+  | 'RECORD_AUDIO'
+  | 'NEARBY_POLICE'
+  | 'NEARBY_HOSPITALS'
+  | 'FIRST_AID'
+  | 'DISASTER_CENTER'
+  | 'REPORT_INCIDENT'
+  | 'GREEN_BHARAT'
+  | 'IKS_ARCHIVE'
+  | 'DAILY_MISSIONS'
+  | 'EDIT_PROFILE'
+  | 'SPEAK_ADVICE'
+  | 'COPY_COORDINATES';
+
+export interface SafeAIMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  timestamp: number;
+  isEmergency?: boolean;
+  situationCategory?: string;
+  suggestedActions?: SafeAIActionType[];
+  actionExecuted?: string;
+  groundingPlaces?: Array<{ title: string; uri: string }>;
+}
 
 export interface EmergencyContact {
   id: string;

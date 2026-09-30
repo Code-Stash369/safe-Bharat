@@ -56,9 +56,9 @@ export const RealTimeWeatherSummary: React.FC<RealTimeWeatherSummaryProps> = ({
     try {
       const data = await weatherService.fetchLiveWeather(lat, lng, cityName);
       setWeatherData(data);
-    } catch (err: any) {
-      console.error('Weather fetch error:', err);
-      setError('Unable to reach meteorological station. Retrying...');
+    } catch {
+      // Graceful fallback already guaranteed by weatherService
+      setError(null);
     } finally {
       setLoading(false);
     }

@@ -21,10 +21,12 @@ import {
   AlertTriangle,
   Flame
 } from 'lucide-react';
-import { LocationInfo, UserProfile } from '../types';
+import { LocationInfo, UserProfile, EmergencyContact } from '../types';
 import { flashlightMorseService } from '../services/flashlightMorseService';
 import { audioService } from '../services/audioService';
+import { hapticService } from '../services/hapticService';
 import { openExternalLink } from '../services/linkService';
+import { smsDispatchService } from '../services/smsDispatchService';
 import { useLanguage } from '../context/LanguageContext';
 
 interface FloatingSOSActionPanelProps {
@@ -32,6 +34,7 @@ interface FloatingSOSActionPanelProps {
   location: LocationInfo | null;
   onRequestLocation: () => Promise<LocationInfo | null>;
   onTriggerSOSModal?: () => void;
+  currentNavigationTab?: string;
 }
 
 interface GroundingPlace {
@@ -53,6 +56,7 @@ export const FloatingSOSActionPanel: React.FC<FloatingSOSActionPanelProps> = ({
   location,
   onRequestLocation,
   onTriggerSOSModal,
+  currentNavigationTab,
 }) => {
   const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState<boolean>(false);
@@ -122,30 +126,47 @@ export const FloatingSOSActionPanel: React.FC<FloatingSOSActionPanelProps> = ({
   };
 
   const generateSMSTemplate = () => {
-    const latStr = location ? location.lat.toFixed(6) : '28.613900';
-    const lngStr = location ? location.lng.toFixed(6) : '77.209000';
-    const accuracyStr = location ? `±${Math.round(location.accuracy)}m` : 'estimate';
-    const mapsLink = `https://www.google.com/maps?q=${latStr},${lngStr}`;
-
-    return `🚨 EMERGENCY SOS ALERT! 🚨\nI am in immediate distress and need urgent assistance.\nName: ${user.name}\nPhone: +91 ${user.phone}\nBlood Group: ${user.bloodGroup}\nLocation Coordinates: ${latStr}, ${lngStr} (${accuracyStr})\nLive Google Map: ${mapsLink}\nSent via Safe Bharat National Emergency Command.`;
+    return smsDispatchService.generateDistressMessage(
+      user,
+      location,
+      'Emergency SOS Distress Triggered'
+    ).text;
   };
 
-  const handleSendSMS = () => {
-    const text = encodeURIComponent(generateSMSTemplate());
-    // If user has saved emergency contacts, target them in the SMS recipient list
-    const recipientNumbers = user.contacts.map(c => c.phone).join(',');
-    const smsUri = recipientNumbers ? `sms:${recipientNumbers}?body=${text}` : `sms:?body=${text}`;
-    window.location.href = smsUri;
+  const handleSendSMS = (targetContact?: EmergencyContact) => {
+    hapticService.triggerSOS();
+    smsDispatchService.dispatchViaNativeSMS(
+      user,
+      location,
+      'Emergency SOS Distress Triggered',
+      targetContact
+    );
   };
 
-  const handleCopySMS = () => {
-    const text = generateSMSTemplate();
-    navigator.clipboard.writeText(text);
-    setCopiedSMS(true);
-    setTimeout(() => setCopiedSMS(false), 2200);
+  const handleWebShare = async () => {
+    hapticService.triggerActionConfirmed();
+    await smsDispatchService.dispatchViaWebShare(
+      user,
+      location,
+      'Emergency SOS Distress Triggered'
+    );
+  };
+
+  const handleCopySMS = async () => {
+    const success = await smsDispatchService.copyDistressText(
+      user,
+      location,
+      'Emergency SOS Distress Triggered'
+    );
+    if (success) {
+      hapticService.triggerActionConfirmed();
+      setCopiedSMS(true);
+      setTimeout(() => setCopiedSMS(false), 2200);
+    }
   };
 
   const handleSendWhatsApp = () => {
+    hapticService.triggerSOS();
     const text = encodeURIComponent(generateSMSTemplate());
     openExternalLink(`https://wa.me/?text=${text}`);
   };
@@ -159,7 +180,7 @@ export const FloatingSOSActionPanel: React.FC<FloatingSOSActionPanelProps> = ({
 
       {/* Floating High-Visibility Trigger Button (Bottom Right) */}
       <div className="fixed bottom-20 lg:bottom-6 right-3 sm:right-6 z-40 flex flex-col items-end">
-        {!isOpen && (
+        {!isOpen && currentNavigationTab !== 'sos' && (
           <button
             onClick={() => setIsOpen(true)}
             className="group relative flex items-center justify-center gap-2 sm:gap-2.5 p-3 sm:px-4 sm:py-3 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white font-display font-black text-xs sm:text-sm shadow-2xl shadow-red-600/60 border-2 border-red-400 hover:scale-105 active:scale-95 transition-all cursor-pointer select-none"
@@ -291,31 +312,66 @@ export const FloatingSOSActionPanel: React.FC<FloatingSOSActionPanelProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
-                  onClick={handleSendSMS}
-                  className="py-2.5 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-colors"
+                  onClick={() => handleSendSMS()}
+                  className="py-2 px-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-colors"
+                  title="Send SMS to all pre-saved contacts"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Send SMS</span>
+                  <span>Send All SMS</span>
                 </button>
+
+                {smsDispatchService.canShare() && (
+                  <button
+                    onClick={handleWebShare}
+                    className="py-2 px-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-colors"
+                    title="Share via native OS Share Sheet"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Web Share</span>
+                  </button>
+                )}
 
                 <button
                   onClick={handleSendWhatsApp}
-                  className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-colors"
+                  className="py-2 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-colors"
                 >
-                  <Share2 className="w-3.5 h-3.5" />
+                  <MessageSquare className="w-3.5 h-3.5" />
                   <span>WhatsApp</span>
                 </button>
 
                 <button
                   onClick={handleCopySMS}
-                  className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors border border-slate-700"
+                  className="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors border border-slate-700"
                 >
                   {copiedSMS ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
                   <span>{copiedSMS ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
+
+              {/* Pre-saved Emergency Contacts Quick Dispatch Chips */}
+              {user.contacts && user.contacts.length > 0 && (
+                <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-mono uppercase font-semibold">1-Tap SMS to Saved Contact:</span>
+                    <span>{user.contacts.length} Available</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {user.contacts.map((contact) => (
+                      <button
+                        key={contact.id}
+                        onClick={() => handleSendSMS(contact)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-500/50 text-slate-200 hover:text-cyan-200 text-[10px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                        title={`Send emergency SMS to ${contact.name} (${contact.phone})`}
+                      >
+                        <Send className="w-2.5 h-2.5 text-cyan-400" />
+                        <span>{contact.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Feature 3: Real-Time Nearest Emergency Contacts Based on Current Location */}

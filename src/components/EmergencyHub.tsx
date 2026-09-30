@@ -18,13 +18,17 @@ import {
   Mic,
   MicOff,
   Radio,
-  Sparkles
+  Sparkles,
+  MessageSquare,
+  Users
 } from 'lucide-react';
-import { LocationInfo, NearbyEmergencyService, UserProfile } from '../types';
+import { LocationInfo, NearbyEmergencyService, UserProfile, EmergencyContact } from '../types';
 import { NATIONAL_HELPLINES, NEARBY_SERVICES_SAMPLE } from '../data/initialData';
 import { audioService } from '../services/audioService';
 import { openExternalLink } from '../services/linkService';
 import { voiceSOSService, VoiceListenerState, VoiceSOSEvent } from '../services/voiceSOSService';
+import { smsDispatchService } from '../services/smsDispatchService';
+import { hapticService } from '../services/hapticService';
 
 interface EmergencyHubProps {
   user: UserProfile;
@@ -73,18 +77,26 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
     };
   }, []);
 
-  const handleToggleVoiceSOS = () => {
-    const next = !voiceEnabled;
-    setVoiceEnabled(next);
-    voiceSOSService.setEnabled(next);
+  const handleToggleVoiceSOS = async () => {
+    if (voiceState === 'listening') {
+      voiceSOSService.stopListening();
+      setVoiceEnabled(false);
+    } else {
+      const success = await voiceSOSService.startListening();
+      setVoiceEnabled(success);
+    }
   };
 
   const handleSimulateVoice = (kw: string) => {
     voiceSOSService.simulateKeyword(kw);
   };
 
+  const lastVibratedMilestoneRef = useRef<number>(0);
+
   const startHold = () => {
     setHolding(true);
+    lastVibratedMilestoneRef.current = 0;
+    hapticService.triggerTap();
     const start = Date.now();
     const duration = 2500; // 2.5 seconds hold
 
@@ -92,6 +104,18 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
       const elapsed = Date.now() - start;
       const progress = Math.min(100, (elapsed / duration) * 100);
       setHoldProgress(progress);
+
+      // Tactile confirmation milestones as user holds the SOS button
+      if (progress >= 75 && lastVibratedMilestoneRef.current < 75) {
+        lastVibratedMilestoneRef.current = 75;
+        hapticService.vibrate([70, 40, 70]);
+      } else if (progress >= 50 && lastVibratedMilestoneRef.current < 50) {
+        lastVibratedMilestoneRef.current = 50;
+        hapticService.vibrate(60);
+      } else if (progress >= 25 && lastVibratedMilestoneRef.current < 25) {
+        lastVibratedMilestoneRef.current = 25;
+        hapticService.vibrate(40);
+      }
 
       if (progress >= 100) {
         clearInterval(timerRef.current);
@@ -103,6 +127,7 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
   const cancelHold = () => {
     setHolding(false);
     setHoldProgress(0);
+    hapticService.cancel();
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -117,6 +142,7 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
       setTriggeredByVoice(voiceKeyword);
     }
     audioService.playSiren();
+    hapticService.triggerSOS();
 
     if (!location) {
       setLocLoading(true);
@@ -129,6 +155,7 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
     setSosTriggered(false);
     setTriggeredByVoice(null);
     audioService.stopSiren();
+    hapticService.cancel();
   };
 
   const handleFetchLocation = async () => {
@@ -137,29 +164,52 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
     setLocLoading(false);
   };
 
-  const generateEmergencyText = () => {
-    const coordsText = location 
-      ? `\n📍 LIVE GPS: https://www.google.com/maps?q=${location.lat.toFixed(6)},${location.lng.toFixed(6)} (Lat: ${location.lat.toFixed(5)}, Lng: ${location.lng.toFixed(5)}, Accuracy: ±${Math.round(location.accuracy)}m)`
-      : '\n📍 Location: Requesting GPS lock...';
-    
-    return `🚨 EMERGENCY SOS ALERT! I need immediate assistance! 🚨\nName: ${user.name}\nPhone: ${user.phone}\nBlood Group: ${user.bloodGroup}${coordsText}\nSent via Safe Bharat National Emergency Command.`;
+  const generateEmergencyText = (targetContact?: EmergencyContact) => {
+    return smsDispatchService.generateDistressMessage(
+      user,
+      location,
+      triggeredByVoice ? `Voice SOS Keyword: "${triggeredByVoice}"` : 'Manual Emergency SOS Beacon Triggered',
+      targetContact
+    ).text;
   };
 
-  const handleCopyText = () => {
-    const text = generateEmergencyText();
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyText = async (targetContact?: EmergencyContact) => {
+    const success = await smsDispatchService.copyDistressText(
+      user,
+      location,
+      triggeredByVoice ? `Voice SOS Keyword: "${triggeredByVoice}"` : 'Manual Emergency SOS Beacon Triggered',
+      targetContact
+    );
+    if (success) {
+      hapticService.triggerActionConfirmed();
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const handleWhatsAppBroadcast = () => {
+    hapticService.triggerActionConfirmed();
     const text = encodeURIComponent(generateEmergencyText());
     openExternalLink(`https://wa.me/?text=${text}`);
   };
 
-  const handleSMSBroadcast = () => {
-    const text = encodeURIComponent(generateEmergencyText());
-    window.location.href = `sms:?body=${text}`;
+  const handleSMSBroadcast = (targetContact?: EmergencyContact) => {
+    hapticService.triggerActionConfirmed();
+    smsDispatchService.dispatchViaNativeSMS(
+      user,
+      location,
+      triggeredByVoice ? `Voice SOS Keyword: "${triggeredByVoice}"` : 'Manual Emergency SOS Beacon Triggered',
+      targetContact
+    );
+  };
+
+  const handleWebShareBroadcast = async () => {
+    hapticService.triggerActionConfirmed();
+    await smsDispatchService.dispatchViaWebShare(
+      user,
+      location,
+      triggeredByVoice ? `Voice SOS Keyword: "${triggeredByVoice}"` : 'Manual Emergency SOS Beacon Triggered'
+    );
   };
 
   const filteredHelplines = searchCategory === 'all'
@@ -238,20 +288,70 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <a
                 href="tel:112"
-                className="py-3.5 px-4 rounded-2xl bg-white text-red-700 hover:bg-slate-100 font-display font-black text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                className="py-3 px-4 rounded-2xl bg-white text-red-700 hover:bg-slate-100 font-display font-black text-base sm:text-lg flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
                 <Phone className="w-5 h-5 text-red-600 fill-current" />
                 <span>DIAL 112 NOW</span>
               </a>
 
               <button
-                onClick={handleWhatsAppBroadcast}
-                className="py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-base flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                onClick={() => handleSMSBroadcast()}
+                className="py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-display font-black text-base flex items-center justify-center gap-2 shadow-xl shadow-red-600/40 cursor-pointer"
               >
-                <Send className="w-5 h-5" />
-                <span>WhatsApp SOS</span>
+                <MessageSquare className="w-5 h-5" />
+                <span>Send SMS to Contacts ({user.contacts?.length || 0})</span>
               </button>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                onClick={handleWhatsAppBroadcast}
+                className="py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>WhatsApp SOS Broadcast</span>
+              </button>
+
+              {smsDispatchService.canShare() ? (
+                <button
+                  onClick={handleWebShareBroadcast}
+                  className="py-3 px-4 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Native Web Share</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleCopyText()}
+                  className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm flex items-center justify-center gap-2 border border-slate-700 cursor-pointer"
+                >
+                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-300" />}
+                  <span>{copied ? 'Distress Copied!' : 'Copy Distress Details'}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Pre-saved individual contact quick buttons */}
+            {user.contacts && user.contacts.length > 0 && (
+              <div className="p-3 rounded-2xl bg-black/40 border border-red-500/30 text-left space-y-2">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-red-300 font-bold block">
+                  1-Tap Instant SMS to Individual Saved Contact:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {user.contacts.map((contact) => (
+                    <button
+                      key={contact.id}
+                      onClick={() => handleSMSBroadcast(contact)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-red-950 border border-slate-700 hover:border-red-400 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-rose-400" />
+                      <span>{contact.name}</span>
+                      <span className="text-[10px] text-slate-400">({contact.phone})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <button
               onClick={stopEmergencySOS}
@@ -364,31 +464,66 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/80">
+            <button
+              onClick={() => handleSMSBroadcast()}
+              className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-900/40 cursor-pointer transition-all active:scale-95"
+              title="Open native SMS pre-populated with all saved emergency contacts"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>SMS All ({user.contacts?.length || 0})</span>
+            </button>
+
+            {smsDispatchService.canShare() && (
+              <button
+                onClick={handleWebShareBroadcast}
+                className="py-2.5 px-3 rounded-xl bg-sky-950/70 hover:bg-sky-900/70 border border-sky-700/50 text-sky-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors active:scale-95"
+                title="Share alert via native OS Share Sheet"
+              >
+                <Share2 className="w-3.5 h-3.5 text-sky-400" />
+                <span>Web Share</span>
+              </button>
+            )}
+
             <button
               onClick={handleWhatsAppBroadcast}
-              className="py-2.5 px-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-700/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              className="py-2.5 px-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-700/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors active:scale-95"
             >
               <Send className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Share WhatsApp</span>
+              <span>WhatsApp</span>
             </button>
 
             <button
-              onClick={handleSMSBroadcast}
-              className="py-2.5 px-3 rounded-xl bg-blue-950/60 hover:bg-blue-900/60 border border-blue-700/50 text-blue-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
-            >
-              <Share2 className="w-3.5 h-3.5 text-blue-400" />
-              <span>Send SMS Alert</span>
-            </button>
-
-            <button
-              onClick={handleCopyText}
-              className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              onClick={() => handleCopyText()}
+              className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors active:scale-95"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
               <span>{copied ? 'Copied!' : 'Copy SOS Text'}</span>
             </button>
           </div>
+
+          {/* Quick Individual Contact SMS Chips */}
+          {user.contacts && user.contacts.length > 0 && (
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
+                1-Tap SMS Alert to Saved Emergency Contact:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {user.contacts.map((contact) => (
+                  <button
+                    key={contact.id}
+                    onClick={() => handleSMSBroadcast(contact)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-900/90 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-500/50 text-slate-200 hover:text-rose-200 text-[11px] font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
+                    title={`Send direct emergency SMS alert to ${contact.name}`}
+                  >
+                    <MessageSquare className="w-3 h-3 text-rose-400" />
+                    <span>{contact.name}</span>
+                    <span className="text-[9px] font-mono text-slate-400">({contact.phone})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -425,15 +560,30 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
           <button
             onClick={handleToggleVoiceSOS}
             className={`py-2 px-4 rounded-xl text-xs font-bold border transition-all cursor-pointer self-start sm:self-auto flex items-center gap-2 ${
-              voiceEnabled
+              voiceEnabled && voiceState === 'listening'
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-md'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                : voiceState === 'permission_denied'
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400 shadow-md'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
             }`}
           >
-            {voiceEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-            <span>{voiceEnabled ? 'Listener Enabled (ON)' : 'Enable Voice SOS'}</span>
+            {voiceEnabled && voiceState === 'listening' ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+            <span>
+              {voiceEnabled && voiceState === 'listening' 
+                ? 'Listener Active (Listening)' 
+                : voiceState === 'permission_denied'
+                  ? 'Fix Microphone Permission'
+                  : 'Activate Voice SOS'}
+            </span>
           </button>
         </div>
+
+        {voiceState === 'permission_denied' && (
+          <div className="p-3 rounded-xl bg-amber-950/70 border border-amber-500/50 text-xs text-amber-200 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Microphone permission is blocked by your browser. Please allow microphone access in your browser address bar to use voice recognition.</span>
+          </div>
+        )}
 
         {/* Audio Sensitivity Meter & Live Speech Transcript */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -499,16 +649,22 @@ export const EmergencyHub: React.FC<EmergencyHubProps> = ({
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Test Voice Trigger:</span>
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   onClick={() => handleSimulateVoice('HELP')}
-                  className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-mono text-xs font-black cursor-pointer shadow-md transition-colors"
+                  className="px-2.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-mono text-xs font-black cursor-pointer shadow-md transition-colors"
                 >
                   Test &ldquo;Help&rdquo;
                 </button>
                 <button
+                  onClick={() => handleSimulateVoice('BACHAO')}
+                  className="px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-mono text-xs font-black cursor-pointer shadow-md transition-colors"
+                >
+                  Test &ldquo;Bachao&rdquo;
+                </button>
+                <button
                   onClick={() => handleSimulateVoice('EMERGENCY')}
-                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-mono text-xs font-black cursor-pointer shadow-md transition-colors"
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-mono text-xs font-black cursor-pointer shadow-md transition-colors"
                 >
                   Test &ldquo;Emergency&rdquo;
                 </button>

@@ -20,6 +20,7 @@ import {
 import { IncidentReport, LocationInfo, UserProfile } from '../types';
 import { audioService } from '../services/audioService';
 import { openExternalLink } from '../services/linkService';
+import { hapticService } from '../services/hapticService';
 import { OfflineLeafletMap } from './OfflineLeafletMap';
 
 interface IncidentReportingStudioProps {
@@ -113,6 +114,7 @@ export const IncidentReportingStudio: React.FC<IncidentReportingStudioProps> = (
 
     onSaveReport(newReport);
     audioService.playSuccessChime();
+    hapticService.triggerActionConfirmed();
     setSuccessReceipt(newReport);
     setShowForm(false);
     // Reset form
@@ -127,6 +129,7 @@ export const IncidentReportingStudio: React.FC<IncidentReportingStudioProps> = (
     : reports.filter((r) => r.type === activeFilter);
 
   const handleShareReport = (report: IncidentReport) => {
+    hapticService.triggerActionConfirmed();
     const text = encodeURIComponent(
       `🚨 Safe Bharat Citizen Incident Report [${report.id}]\nType: ${report.type.toUpperCase()} · ${report.title}\nSeverity: ${report.severity.toUpperCase()}\nDetails: ${report.description}\nLocation: ${report.location.address}\nhttps://www.google.com/maps?q=${report.location.lat},${report.location.lng}`
     );
