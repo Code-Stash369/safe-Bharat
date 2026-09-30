@@ -1,0 +1,6 @@
+{
+  "name": "Safe Bharat — National Safety & Sustainability Command",
+  "description": "An all-in-one civic emergency response, women safety shield, real-time disaster alerts, community incident reporting, and green sustainability platform with live daily updates for India.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
